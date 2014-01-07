@@ -42,12 +42,10 @@ class BeanstalkClient(object):
         self._beanstalk.use(func)
         self._beanstalk.put(str(arg), priority=priority, delay=delay, ttr=ttr)
 
-    @property
     def current_jobs_delayed(self, func):
         stats = self._beanstalk.stats_tube(func)
         return stats["current-jobs-delayed"]
 
-    @property
     def current_waiting(self, func):
         stats = self._beanstalk.stats_tube(func)
         return stats["current-waiting"]
