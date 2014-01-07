@@ -46,9 +46,9 @@ class BeanstalkClient(object):
         stats = self._beanstalk.stats_tube(func)
         return stats["current-jobs-delayed"]
 
-    def current_waiting(self, func):
+    def current_jobs_ready(self, func):
         stats = self._beanstalk.stats_tube(func)
-        return stats["current-waiting"]
+        return stats["current-jobs-ready"]
 
     def __init__(self, **kwargs):
         self._beanstalk = connect_beanstalkd()
