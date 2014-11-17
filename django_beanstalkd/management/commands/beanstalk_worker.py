@@ -2,13 +2,14 @@ import logging
 from optparse import make_option
 import os
 import sys
+import time
 import traceback
 
-import time
+from beanstalkc import SocketError
+from django import db
 from django.conf import settings
 from django.core.management.base import NoArgsCommand
-from django_beanstalkd import connect_beanstalkd, BeanstalkError
-from beanstalkc import SocketError
+from django_beanstalkd import BeanstalkError, connect_beanstalkd
 
 
 logger = logging.getLogger('django_beanstalkd')
@@ -119,6 +120,8 @@ class Command(NoArgsCommand):
                     beanstalk.ignore('default')
 
                     # Connected to Beanstalk queue, continually process jobs until an error occurs
+                    # Each worker will have their own connection
+                    db.connections['default'].close()
                     self.process_jobs(beanstalk)
 
                 except (BeanstalkError, SocketError) as e:
