@@ -11,6 +11,8 @@ from django.conf import settings
 from django.core.management.base import NoArgsCommand
 from django_beanstalkd import BeanstalkError, connect_beanstalkd
 
+from content_utils.utils import flush_transaction
+
 
 logger = logging.getLogger('django_beanstalkd')
 logger.addHandler(logging.StreamHandler())
@@ -140,6 +142,7 @@ class Command(NoArgsCommand):
             if job_name in self.jobs:
                 logger.debug("Calling %s with arg: %s" % (job_name, job.body))
                 try:
+                    flush_transaction()
                     self.jobs[job_name](job.body)
                 except Exception, e:
                     tp, value, tb = sys.exc_info()
