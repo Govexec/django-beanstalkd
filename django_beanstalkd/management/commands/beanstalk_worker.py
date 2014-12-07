@@ -10,6 +10,8 @@ from django import db
 from django.conf import settings
 from django.core.management.base import NoArgsCommand
 from django_beanstalkd import BeanstalkError, connect_beanstalkd
+from _mysql_exceptions import OperationalError
+from raven import Client
 
 from content_utils.utils import flush_transaction
 
@@ -142,6 +144,13 @@ class Command(NoArgsCommand):
             if job_name in self.jobs:
                 logger.debug("Calling %s with arg: %s" % (job_name, job.body))
                 try:
+                    connection = db.connections['default']
+                    if connection.connection:
+                        try:
+                            connection.connection.ping()
+                        except OperationalError as e:
+                            connection.close()
+
                     flush_transaction()
                     self.jobs[job_name](job.body)
                 except Exception, e:
@@ -155,6 +164,10 @@ class Command(NoArgsCommand):
                     )
                     logger.debug("%s:%s" % (tp.__name__, value))
                     logger.debug("\n".join(traceback.format_tb(tb)))
+
+                    client = Client(dsn=settings.RAVEN_CONFIG['dsn'])
+                    client.captureMessage(str(e), stack=True)
+
                     job.bury()
                 else:
                     job.delete()
