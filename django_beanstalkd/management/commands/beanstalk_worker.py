@@ -26,7 +26,7 @@ class Command(NoArgsCommand):
         make_option('-w', '--workers', action='store', dest='worker_count',
                     default='1', help='Number of workers to spawn.'),
         make_option('-l', '--log-level', action='store', dest='log_level',
-                    default='info', help='Log level of worker process (one of '
+                    default=logging.getLevelName(logger.level), help='Log level of worker process (one of '
                     '"debug", "info", "warning", "error")'),
     )
     children = [] # list of worker processes
