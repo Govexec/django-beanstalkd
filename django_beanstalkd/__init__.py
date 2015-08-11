@@ -10,11 +10,12 @@ from beanstalkc import Connection, SocketError, DEFAULT_PRIORITY, DEFAULT_TTR
 
 from decorators import beanstalk_job
 
-def connect_beanstalkd():
+def connect_beanstalkd(server=None, port=11300):
     """Connect to beanstalkd server(s) from settings file"""
 
-    server = getattr(settings, 'BEANSTALK_SERVER', '127.0.0.1')
-    port = 11300
+    if server is None:
+        server = getattr(settings, 'BEANSTALK_SERVER', '127.0.0.1')
+
     if server.find(':') > -1:
         server, port = server.split(':', 1)
 
@@ -57,7 +58,9 @@ class BeanstalkClient(object):
         return stats["current-jobs-ready"]
 
     def __init__(self, **kwargs):
-        self._beanstalk = connect_beanstalkd()
+        server = kwargs.get('server', None)
+        port = kwargs.get('port', None)
+        self._beanstalk = connect_beanstalkd(server, port)
 
 class backoff_beanstalk_job(object):
     def __init__(self, max_retries, delay=0, priority=1, ttr=3600):
