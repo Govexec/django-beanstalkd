@@ -135,7 +135,11 @@ class Command(NoArgsCommand):
                     self.process_jobs(beanstalk)
 
                 except (BeanstalkError, SocketError) as e:
-                    logger.info("Beanstalk connection error: " + str(e))
+                    msg = "Beanstalk connection error: " + str(e)
+                    logger.info(msg)
+                    client = Client(dsn=settings.RAVEN_CONFIG['dsn'])
+                    client.captureMessage(msg, stack=True, level=logging.ERROR)
+
                     time.sleep(2.0)
                     logger.info("retrying Beanstalk connection...")
                 except KeyboardInterrupt:
@@ -143,7 +147,7 @@ class Command(NoArgsCommand):
                 except Exception as e:
                     msg = "Beanstalk error: " + str(e)
                     client = Client(dsn=settings.RAVEN_CONFIG['dsn'])
-                    client.captureMessage(msg, stack=True)
+                    client.captureMessage(msg, stack=True, level=logging.ERROR)
 
                     logger.info(msg)
                     time.sleep(2.0)
@@ -182,7 +186,7 @@ class Command(NoArgsCommand):
                     logger.debug("\n".join(traceback.format_tb(tb)))
 
                     client = Client(dsn=settings.RAVEN_CONFIG['dsn'])
-                    client.captureMessage(str(e), stack=True)
+                    client.captureMessage(str(e), stack=True, level=logging.ERROR)
 
                     job.bury()
                 else:
