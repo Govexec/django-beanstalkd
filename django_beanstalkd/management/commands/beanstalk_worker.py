@@ -138,6 +138,16 @@ class Command(NoArgsCommand):
                     logger.info("Beanstalk connection error: " + str(e))
                     time.sleep(2.0)
                     logger.info("retrying Beanstalk connection...")
+                except KeyboardInterrupt:
+                    raise
+                except Exception as e:
+                    msg = "Beanstalk error: " + str(e)
+                    client = Client(dsn=settings.RAVEN_CONFIG['dsn'])
+                    client.captureMessage(msg, stack=True)
+
+                    logger.info(msg)
+                    time.sleep(2.0)
+                    logger.info("retrying Beanstalk connection...")
 
         except KeyboardInterrupt:
             sys.exit(0)
