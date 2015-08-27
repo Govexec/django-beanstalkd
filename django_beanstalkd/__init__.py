@@ -30,7 +30,9 @@ class BeanstalkError(Exception):
     pass
 
 class BeanstalkRetryError(Exception):
-    pass
+    def __init__(self, msg, data=None):
+        self.data = data
+        super(BeanstalkRetryError, self).__init__(msg)
 
 
 class BeanstalkClient(object):
@@ -113,8 +115,9 @@ class backoff_beanstalk_job(object):
                         beanstalk_client.call(job, json.dumps(data), delay=(2 ** attempt), priority=self.priority, ttr=self.ttr)
                     else:
                         msg = u"Exceeded max retry attempts for {}.".format(job)
+                        error_data = e.data if e.data is not None else {}
                         raven_client = Client(dsn=settings.RAVEN_CONFIG[u'dsn'])
-                        raven_client.captureMessage(msg, stack=True)
+                        raven_client.captureMessage(msg, data=error_data, stack=True)
                 except Exception as e:
                     raven_client = Client(dsn=settings.RAVEN_CONFIG[u'dsn'])
                     raven_client.captureException()
