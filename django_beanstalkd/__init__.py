@@ -4,6 +4,7 @@ Django Beanstalk Interface
 import json
 
 from django.conf import settings
+from django.core.mail import send_mail
 from raven import Client
 
 from beanstalkc import Connection, SocketError, DEFAULT_PRIORITY, DEFAULT_TTR
@@ -30,7 +31,18 @@ class BeanstalkError(Exception):
     pass
 
 class BeanstalkRetryError(Exception):
-    def __init__(self, msg, data=None):
+    def __init__(self, msg, email_info=None, data=None):
+        try:
+            self.email_address = email_info['address']
+            self.email_subject = email_info['subject']
+            self.email_body = email_info['body']
+            self.should_email = True
+        except:
+            self.email_address = None
+            self.email_subject = None
+            self.email_body = None
+            self.should_email = False
+            
         self.data = data
         super(BeanstalkRetryError, self).__init__(msg)
 
@@ -118,6 +130,9 @@ class backoff_beanstalk_job(object):
                         error_data = e.data if e.data is not None else {}
                         raven_client = Client(dsn=settings.RAVEN_CONFIG[u'dsn'])
                         raven_client.captureMessage(msg, data=error_data, stack=True)
+
+                        if e.should_email:
+                            send_mail(e.email_subject, e.email_body, settings.DEFAULT_FROM_EMAIL, [e.email_address], fail_silently=False)
                 except Exception as e:
                     raven_client = Client(dsn=settings.RAVEN_CONFIG[u'dsn'])
                     raven_client.captureException()
