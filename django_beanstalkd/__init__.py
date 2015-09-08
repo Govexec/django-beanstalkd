@@ -2,6 +2,7 @@
 Django Beanstalk Interface
 """
 import json
+import logging
 
 from django.conf import settings
 from django.core.mail import send_mail
@@ -42,7 +43,7 @@ class BeanstalkRetryError(Exception):
             self.email_subject = None
             self.email_body = None
             self.should_email = False
-            
+
         self.data = data
         super(BeanstalkRetryError, self).__init__(msg)
 
@@ -77,8 +78,9 @@ class BeanstalkClient(object):
         self._beanstalk = connect_beanstalkd(server, port)
 
 class backoff_beanstalk_job(object):
-    def __init__(self, max_retries, delay=0, priority=1, ttr=3600):
+    def __init__(self, max_retries, delay=0, priority=1, ttr=3600, warn_after=None):
         self.max_retries = max_retries
+        self.warn_after = warn_after
         self.delay = delay
         self.priority = priority
         self.ttr = ttr
@@ -121,6 +123,20 @@ class backoff_beanstalk_job(object):
                         job = u"{}.{}".format(instance.app, instance.__name__)
 
                     if attempt < self.max_retries:
+                        if self.warn_after is not None and attempt == (self.warn_after - 1):
+                            msg = u"Approaching max retry attempts for {}.".format(job)
+                            warn_data = {
+                                'extra': {
+                                    'Job': job,
+                                    'Attempt number': attempt,
+                                    'Warn after': self.warn_after,
+                                    'Max retries': self.max_retries,
+                                    'Job data': data,
+                                }
+                            }
+                            raven_client = Client(dsn=settings.RAVEN_CONFIG[u'dsn'])
+                            raven_client.captureMessage(msg, data=warn_data, stack=True, level=logging.WARN)
+
                         data[u'__attempt'] = attempt + 1
 
                         beanstalk_client = BeanstalkClient()
