@@ -25,6 +25,10 @@ class Command(NoArgsCommand):
     option_list = NoArgsCommand.option_list + (
         make_option('-w', '--workers', action='store', dest='worker_count',
                     default='1', help='Number of workers to spawn.'),
+        make_option('-s', '--server', action='store', dest='server',
+                    help='The beanstalk server to pull jobs.'),
+        make_option('-p', '--port', action='store', dest='port',
+                    default=11300, help='The port of the beanstalk server to pull jobs.'),
         make_option('-l', '--log-level', action='store', dest='log_level',
                     default=logging.getLevelName(logger.level), help='Log level of worker process (one of '
                     '"debug", "info", "warning", "error")'),
@@ -34,6 +38,8 @@ class Command(NoArgsCommand):
 
     def handle_noargs(self, **options):
         # set log level
+        self.beanstalk_server = options['server']
+        self.beanstalk_port = options['port']
         logger.setLevel(getattr(logging, options['log_level'].upper()))
 
         # find beanstalk job modules
@@ -118,7 +124,7 @@ class Command(NoArgsCommand):
             while True:
                 try:
                     # Reattempt Beanstalk connection if connection attempt fails or is dropped
-                    beanstalk = connect_beanstalkd()
+                    beanstalk = connect_beanstalkd(server=self.beanstalk_server, port=self.beanstalk_port)
                     for job in self.jobs.keys():
                         beanstalk.watch(job)
                     beanstalk.ignore('default')
@@ -129,7 +135,21 @@ class Command(NoArgsCommand):
                     self.process_jobs(beanstalk)
 
                 except (BeanstalkError, SocketError) as e:
-                    logger.info("Beanstalk connection error: " + str(e))
+                    msg = "Beanstalk connection error: " + str(e)
+                    logger.info(msg)
+                    client = Client(dsn=settings.RAVEN_CONFIG['dsn'])
+                    client.captureMessage(msg, stack=True, level=logging.ERROR)
+
+                    time.sleep(2.0)
+                    logger.info("retrying Beanstalk connection...")
+                except KeyboardInterrupt:
+                    raise
+                except Exception as e:
+                    msg = "Beanstalk error: " + str(e)
+                    client = Client(dsn=settings.RAVEN_CONFIG['dsn'])
+                    client.captureMessage(msg, stack=True, level=logging.ERROR)
+
+                    logger.info(msg)
                     time.sleep(2.0)
                     logger.info("retrying Beanstalk connection...")
 
@@ -166,7 +186,7 @@ class Command(NoArgsCommand):
                     logger.debug("\n".join(traceback.format_tb(tb)))
 
                     client = Client(dsn=settings.RAVEN_CONFIG['dsn'])
-                    client.captureMessage(str(e), stack=True)
+                    client.captureMessage(str(e), stack=True, level=logging.ERROR)
 
                     job.bury()
                 else:
