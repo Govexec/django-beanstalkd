@@ -32,7 +32,7 @@ class BeanstalkError(Exception):
     pass
 
 class BeanstalkRetryError(Exception):
-    def __init__(self, msg, email_info=None, data=None):
+    def __init__(self, msg='', email_info=None, data=None):
         try:
             self.email_address = email_info['address']
             self.email_subject = email_info['subject']
