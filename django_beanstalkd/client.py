@@ -1,6 +1,9 @@
 import beanstalkc
+from django.conf import settings
+from raven import Client as RavenClient
 
 from .connection import connect_beanstalkd
+from .models import JobData
 
 
 class BeanstalkClient(object):
@@ -31,3 +34,17 @@ class BeanstalkClient(object):
         server = kwargs.get('server', None)
         port = kwargs.get('port', None)
         self._beanstalk = connect_beanstalkd(server, port)
+
+
+class DataBeanstalkClient(BeanstalkClient):
+    def call(self, func, data_dict, *args, **kwargs):
+        try:
+            data = JobData()
+            data.data_dict = data_dict
+            data.job_name = func
+            data.save()
+            kwargs['arg'] = str(data.pk)
+            super(DataBeanstalkClient, self).call(func, **kwargs)
+        except Exception as e:
+            raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
+            raven_client.captureException()

@@ -5,10 +5,17 @@ import sys
 
 from django.conf import settings
 from django.core.mail import send_mail
+from django.db import transaction
 from raven import Client as RavenClient
 
 from .client import BeanstalkClient
 from .errors import BeanstalkRetryError
+from .models import JobData
+
+
+@transaction.commit_manually
+def flush_transaction():
+    transaction.commit()
 
 
 class beanstalk_job(object):
@@ -119,5 +126,49 @@ class backoff_beanstalk_job(object):
                 except Exception as e:
                     raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
                     raven_client.captureException()
+
+        return wrapper()
+
+
+class data_beanstalk_job(object):
+    def __init__(self, cleanup=True):
+        self.cleanup = cleanup
+
+    def __call__(self, f):
+
+        class wrapper(beanstalk_job):
+            u"""A beanstalk job where the data for job is stored in db."""
+
+            def __init__(instance):
+                super(wrapper, instance).__init__(f)
+
+            def __call__(instance, pk_str):
+                try:
+                    flush_transaction()
+                    pk = int(pk_str)
+                    data = JobData.objects.get(pk=pk)
+                except (TypeError, ValueError) as e:
+                    error_msg = "Invalid value for pk"
+                    error_extra = {
+                        "pk tried": pk_str
+                    }
+                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
+                    raven_client.captureMessage(error_msg, extra=error_extra, stack=True)
+                except JobData.DoesNotExist:
+                    error_msg = "Unable to find beanstalk job data."
+                    error_extra = {
+                        "pk tried": pk
+                    }
+                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
+                    raven_client.captureMessage(error_msg, extra=error_extra, stack=True)
+                else:
+                    try:
+                        val = instance.f(data)
+                        if self.cleanup:
+                            data.delete()
+                        return val
+                    except Exception as e:
+                        raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
+                        raven_client.captureException()
 
         return wrapper()
