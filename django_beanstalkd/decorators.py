@@ -172,3 +172,120 @@ class data_beanstalk_job(object):
                         raven_client.captureException()
 
         return wrapper()
+
+
+class retry_data_beanstalk_job(object):
+    def __init__(self, max_retries, ttr=3600, cleanup=True):
+        self.max_retries = max_retries
+        self.ttr = ttr
+        self.cleanup = cleanup
+
+    def get_decorator(self):
+        class retry_data_beanstalk_job_decorator(beanstalk_job):
+
+            def __init__(instance, f):
+                super(retry_data_beanstalk_job_decorator, instance).__init__(f)
+                instance.attempt = None
+                instance.beanstalk_data = None
+                instance.jobdata_pk = None
+
+            def __call__(instance, beanstalk_data_str):
+
+                if not instance.load_beanstalk_data(beanstalk_data_str):
+                    return
+
+                flush_transaction()
+
+                try:
+                    data = JobData.objects.get(pk=instance.jobdata_pk)
+                except JobData.DoesNotExist:
+                    instance.handle_missing_data()
+                else:
+                    instance.run_job(data)
+
+            @staticmethod
+            def flush_transaction():
+                flush_transaction()
+
+            def get_job_name(instance):
+                try:
+                    job = settings.BEANSTALK_JOB_NAME % {
+                        u'app': instance.app,
+                        u'job': instance.__name__,
+                    }
+                except AttributeError:
+                    job = u"{}.{}".format(instance.app, instance.__name__)
+                return job
+
+            def load_beanstalk_data(instance, beanstalk_data_str):
+                try:
+                    beanstalk_data = json.loads(beanstalk_data_str)
+
+                    instance.beanstalk_data = beanstalk_data
+                    instance.jobdata_pk = beanstalk_data["jobdata_pk"]
+                    instance.attempt = beanstalk_data.get("attempt", 1)
+                    return True
+                except (TypeError, ValueError):
+                    error_msg = "Unable to load json data."
+                    culprit = instance.get_sentry_culprit("load_beanstalk_data")
+                    error_data = {
+                        "culprit": culprit,
+                        "extra": {
+                            "data string": beanstalk_data_str,
+                        },
+                    }
+                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
+                    raven_client.captureMessage(error_msg, data=error_data, stack=True)
+                except KeyError as e:
+                    error_msg = "Missing required parameters for retry data beanstalk job."
+                    culprit = instance.get_sentry_culprit("load_beanstalk_data")
+                    error_data = {
+                        "culprit": culprit,
+                        "extra": {
+                            "error": str(e),
+                        }
+                    }
+                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
+                    raven_client.captureMessage(error_msg, data=error_data, stack=True)
+
+                return False
+
+            def get_sentry_culprit(instance, *args):
+                culprit = '.'.join([instance.__class__.__name__] + list(args))
+                return culprit
+
+            def handle_missing_data(instance):
+                job = instance.get_job_name()
+                if instance.attempt < self.max_retries:
+                    instance.beanstalk_data['attempt'] = instance.attempt + 1
+
+                    backoff = 2 ** instance.attempt
+                    beanstalk_client = BeanstalkClient()
+                    beanstalk_client.call(job, json.dumps(instance.beanstalk_data), delay=backoff, ttr=self.ttr)
+                else:
+                    msg = u"Exceeded max retry attempts for {}.".format(job)
+                    culprit = instance.get_sentry_culprit("handle_missing_data")
+                    error_data = {
+                        "culprit": culprit,
+                        "extra": {
+                            "Job name": job,
+                            "Attempt number": instance.attempt,
+                            "Beanstalk Data": instance.beanstalk_data,
+                        }
+                    }
+                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
+                    raven_client.captureMessage(msg, data=error_data, stack=True)
+
+            def run_job(instance, job_data_instance):
+                try:
+                    val = instance.f(job_data_instance.data_dict)
+                    if self.cleanup:
+                        job_data_instance.delete()
+                    return val
+                except:
+                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
+                    raven_client.captureException()
+        return retry_data_beanstalk_job_decorator
+
+    def __call__(self, f):
+        return self.get_decorator()(f)
