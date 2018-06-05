@@ -6,7 +6,7 @@ import sys
 from django.conf import settings
 from django.core.mail import send_mail
 from django.db import transaction
-from raven import Client as RavenClient
+from raven.contrib.django.raven_compat.models import client as raven_client
 
 from .client import BeanstalkClient
 from .errors import BeanstalkRetryError
@@ -108,7 +108,6 @@ class backoff_beanstalk_job(object):
                                     'Job data': data,
                                 }
                             }
-                            raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
                             raven_client.captureMessage(msg, data=warn_data, stack=True, level=logging.WARN)
 
                         data[u'__attempt'] = attempt + 1
@@ -118,13 +117,11 @@ class backoff_beanstalk_job(object):
                     else:
                         msg = u"Exceeded max retry attempts for {}.".format(job)
                         error_data = e.data if e.data is not None else {}
-                        raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
                         raven_client.captureMessage(msg, data=error_data, stack=True)
 
                         if e.should_email:
                             send_mail(e.email_subject, e.email_body, settings.DEFAULT_FROM_EMAIL, [e.email_address], fail_silently=False)
                 except Exception as e:
-                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
                     raven_client.captureException()
 
         return wrapper()
@@ -147,19 +144,17 @@ class data_beanstalk_job(object):
                     flush_transaction()
                     pk = int(pk_str)
                     data = JobData.objects.get(pk=pk)
-                except (TypeError, ValueError) as e:
+                except (TypeError, ValueError):
                     error_msg = "Invalid value for pk"
                     error_extra = {
                         "pk tried": pk_str
                     }
-                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
                     raven_client.captureMessage(error_msg, extra=error_extra, stack=True)
                 except JobData.DoesNotExist:
                     error_msg = "Unable to find beanstalk job data."
                     error_extra = {
                         "pk tried": pk
                     }
-                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
                     raven_client.captureMessage(error_msg, extra=error_extra, stack=True)
                 else:
                     try:
@@ -167,8 +162,7 @@ class data_beanstalk_job(object):
                         if self.cleanup:
                             data.delete()
                         return val
-                    except Exception as e:
-                        raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
+                    except Exception:
                         raven_client.captureException()
 
         return wrapper()
@@ -234,7 +228,6 @@ class retry_data_beanstalk_job(object):
                             "data string": beanstalk_data_str,
                         },
                     }
-                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
                     raven_client.captureMessage(error_msg, data=error_data, stack=True)
                 except KeyError as e:
                     error_msg = "Missing required parameters for retry data beanstalk job."
@@ -245,7 +238,6 @@ class retry_data_beanstalk_job(object):
                             "error": str(e),
                         }
                     }
-                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
                     raven_client.captureMessage(error_msg, data=error_data, stack=True)
 
                 return False
@@ -273,7 +265,6 @@ class retry_data_beanstalk_job(object):
                             "Beanstalk Data": instance.beanstalk_data,
                         }
                     }
-                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
                     raven_client.captureMessage(msg, data=error_data, stack=True)
 
             def run_job(instance, job_data_instance):
@@ -282,8 +273,7 @@ class retry_data_beanstalk_job(object):
                     if self.cleanup:
                         job_data_instance.delete()
                     return val
-                except:
-                    raven_client = RavenClient(dsn=settings.RAVEN_CONFIG[u'dsn'])
+                except Exception:
                     raven_client.captureException()
         return retry_data_beanstalk_job_decorator
 
