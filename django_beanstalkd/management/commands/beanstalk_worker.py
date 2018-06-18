@@ -11,13 +11,14 @@ from django.conf import settings
 from django.core.management.base import NoArgsCommand
 from django_beanstalkd import BeanstalkError, connect_beanstalkd
 from _mysql_exceptions import OperationalError
-from raven import Client
+from raven.contrib.django.raven_compat.models import client as raven_client
 
 from content_utils.utils import flush_transaction
 
 
 logger = logging.getLogger('django_beanstalkd')
 logger.addHandler(logging.StreamHandler())
+
 
 class Command(NoArgsCommand):
     help = "Start a Beanstalk worker serving all registered Beanstalk jobs"
@@ -33,7 +34,7 @@ class Command(NoArgsCommand):
                     default=logging.getLevelName(logger.level), help='Log level of worker process (one of '
                     '"debug", "info", "warning", "error")'),
     )
-    children = [] # list of worker processes
+    children = []  # list of worker processes
     jobs = {}
 
     def handle_noargs(self, **options):
@@ -137,8 +138,7 @@ class Command(NoArgsCommand):
                 except (BeanstalkError, SocketError) as e:
                     msg = "Beanstalk connection error: " + str(e)
                     logger.info(msg)
-                    client = Client(dsn=settings.RAVEN_CONFIG['dsn'])
-                    client.captureMessage(msg, stack=True, level=logging.ERROR)
+                    raven_client.captureMessage(msg, stack=True, level=logging.ERROR)
 
                     time.sleep(2.0)
                     logger.info("retrying Beanstalk connection...")
@@ -146,8 +146,7 @@ class Command(NoArgsCommand):
                     raise
                 except Exception as e:
                     msg = "Beanstalk error: " + str(e)
-                    client = Client(dsn=settings.RAVEN_CONFIG['dsn'])
-                    client.captureMessage(msg, stack=True, level=logging.ERROR)
+                    raven_client.captureMessage(msg, stack=True, level=logging.ERROR)
 
                     logger.info(msg)
                     time.sleep(2.0)
@@ -185,8 +184,7 @@ class Command(NoArgsCommand):
                     logger.debug("%s:%s" % (tp.__name__, value))
                     logger.debug("\n".join(traceback.format_tb(tb)))
 
-                    client = Client(dsn=settings.RAVEN_CONFIG['dsn'])
-                    client.captureMessage(str(e), stack=True, level=logging.ERROR)
+                    raven_client.captureMessage(str(e), stack=True, level=logging.ERROR)
 
                     job.bury()
                 else:
